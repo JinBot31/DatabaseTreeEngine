@@ -30,20 +30,20 @@ DatabaseTreeEngine/
 ├─ database.json                 # Sample data
 ├─ pom.xml
 ├─ src/
-│  ├─ main/java/com/nosqlmanager/
+│  ├─ main/java/app/dbEngine/
 │  │  ├─ App.java                # Entry point (CLI that launches JavaFX)
 │  │  ├─ gui/
 │  │  │  ├─ MainView.java        # Main UI (menus, panels, handlers)
 │  │  │  └─ TreeRender.java      # AVL tree visualizer (JavaFX Pane)
-│  │  ├─ manager/DatabaseManager.java     # Index/persistence orchestrator
+│  │  ├─ controller/DatabaseController.java     # Index/persistence orchestrator
 │  │  ├─ model/JsonDocument.java          # JSON document model
 │  │  ├─ repository/JsonRepository.java   # CRUD contract
 │  │  ├─ storage/JsonFileStorage.java     # File persistence
 │  │  └─ tree/
 │  │     ├─ AVLNode.java
 │  │     └─ AVLTree.java
-│  └─ test/java/com/nosqlmanager/
-│     ├─ manager/DatabaseManagerTest.java
+│  └─ test/java/app/dbEngine/
+│     ├─ controllerr/DatabaseControllerrTest.java
 │     └─ tree/AVLTreeTest.java
 └─ target/ ...
 ```
