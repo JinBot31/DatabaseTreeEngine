@@ -1,8 +1,10 @@
 package com.nosqlmanager.gui;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Optional;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -18,6 +20,9 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Label;
+import javafx.scene.control.TableColumn;
+import javafx.scene.control.TableView;
+import javafx.scene.control.TableRow;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
 import javafx.scene.control.MenuItem;
@@ -49,8 +54,9 @@ import javafx.stage.Stage;
 public class MainView extends Application {
 
     private DatabaseManager dbManager;
-    private TreeVisualizer treeVisualizer;
+    private TreeRender treeVisualizer;
     private TextArea jsonViewer;
+    @SuppressWarnings("unused")
     private VBox nodeDetailsPanel;
     private TextArea logArea;
     private TextField idField;
@@ -62,11 +68,17 @@ public class MainView extends Application {
     private VBox logPanel;
     private boolean logVisible = true;
     
+    // View toggle: Tree view vs Data view
+    private enum ViewMode { TREE, DATA }
+    private ViewMode currentViewMode = ViewMode.TREE;
+    private StackPane treeContainer; // holds the interactive tree panel
+    private VBox dataViewContainer;  // holds the table view for data
+    private javafx.scene.control.TableView<JsonDocument> dataTable;
+    
     private Label idValueLabel;
     private VBox dataContentBox;
     private Label heightValueLabel;
     private Label balanceValueLabel;
-    private Label stateValueLabel;
     
     private double scale = 1.0;
     private double translateX = 0;
@@ -93,8 +105,8 @@ public class MainView extends Application {
 
         dbManager = new DatabaseManager(DEFAULT_DB_FILE);
 
-        mainLayout = new BorderPane();
-        mainLayout.setStyle("-fx-background-color: #11111b;");
+    mainLayout = new BorderPane();
+    mainLayout.setStyle("-fx-background-color: #f7f9fc;");
 
         MenuBar menuBar = createMenuBar(primaryStage);
         mainLayout.setTop(menuBar);
@@ -103,23 +115,27 @@ public class MainView extends Application {
         mainLayout.setLeft(leftPanel);
 
         StackPane treePanel = createInteractiveTreePanel();
-        mainLayout.setCenter(treePanel);
+    treeContainer = treePanel;
+    // Prepare data view but do not show by default
+    dataViewContainer = createDataViewPanel();
+    mainLayout.setCenter(treeContainer);
 
         VBox rightPanel = createRightPanel();
         mainLayout.setRight(rightPanel);
 
-        logPanel = createCollapsibleLogPanel();
-        mainLayout.setBottom(logPanel);
+    logPanel = createCollapsibleLogPanel();
+    logVisible = true;
+    mainLayout.setBottom(logPanel);
 
         Scene scene = new Scene(mainLayout, 1600, 900);
-        primaryStage.setTitle("◈ NoSQL Database Manager | AVL Tree");
+        primaryStage.setTitle("DateBase tree Engine");
         primaryStage.setScene(scene);
         primaryStage.show();
 
         treeVisualizer.setTree(dbManager.getIndex());
         treeVisualizer.drawTree(false);
 
-        log("[INFO] Base de datos cargada: " + dbManager.getSize() + " documentos");
+        log("[INFO] datos actualizados.  " + dbManager.getSize() + " documentos encontrados");
     }
 
     /**
@@ -129,8 +145,8 @@ public class MainView extends Application {
      * @return MenuBar configurado
      */
     private MenuBar createMenuBar(Stage stage) {
-        MenuBar menuBar = new MenuBar();
-        menuBar.setStyle("-fx-background-color: #181825; -fx-border-color: #313244; -fx-border-width: 0 0 1 0;");
+    MenuBar menuBar = new MenuBar();
+    menuBar.setStyle("-fx-background-color: #ffffff; -fx-border-color: #e5e7eb; -fx-border-width: 0 0 1 0;");
 
         Menu fileMenu = new Menu("Archivo");
         
@@ -149,19 +165,18 @@ public class MainView extends Application {
         fileMenu.getItems().addAll(newDbItem, openItem, saveAsItem, exitItem);
         
         Menu viewMenu = new Menu("Vista");
+    
+    MenuItem treeViewItem = new MenuItem("Ver Árbol");
+    treeViewItem.setOnAction(e -> switchToTreeView());
+    MenuItem dataViewItem = new MenuItem("Ver Datos");
+    dataViewItem.setOnAction(e -> switchToDataView());
         
-        MenuItem toggleLogItem = new MenuItem("Mostrar/Ocultar Log");
-        toggleLogItem.setOnAction(e -> toggleLog());
-        
-        MenuItem resetZoomItem = new MenuItem("Restablecer Zoom");
-        resetZoomItem.setOnAction(e -> resetZoom());
-        
-        viewMenu.getItems().addAll(toggleLogItem, resetZoomItem);
+    viewMenu.getItems().addAll(treeViewItem, dataViewItem);
         
         menuBar.getMenus().addAll(fileMenu, viewMenu);
         
-        fileMenu.setStyle("-fx-text-fill: #cdd6f4;");
-        viewMenu.setStyle("-fx-text-fill: #cdd6f4;");
+    fileMenu.setStyle("-fx-text-fill: #111827;");
+    viewMenu.setStyle("-fx-text-fill: #111827;");
         
         return menuBar;
     }
@@ -173,30 +188,30 @@ public class MainView extends Application {
      */
     private VBox createLeftPanel() {
         VBox panel = new VBox(20);
-        panel.setPadding(new Insets(20));
-        panel.setPrefWidth(340);
-        panel.setStyle("-fx-background-color: #181825;");
+    panel.setPadding(new Insets(20));
+    panel.setPrefWidth(340);
+    panel.setStyle("-fx-background-color: #ffffff;");
 
-        Label title = new Label("⚡ Operaciones CRUD");
-        title.setFont(Font.font("Arial", FontWeight.BOLD, 20));
-        title.setStyle("-fx-text-fill: #cdd6f4;");
+    Label title = new Label("Consultas SQL");
+    title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 20));
+    title.setStyle("-fx-text-fill: #111827;");
 
         HBox operationSelector = createOperationSelector();
 
-        dynamicFormPanel = new VBox(15);
-        dynamicFormPanel.setPadding(new Insets(20));
-        dynamicFormPanel.setStyle("-fx-background-color: #1e1e2e; -fx-background-radius: 10;");
+    dynamicFormPanel = new VBox(15);
+    dynamicFormPanel.setPadding(new Insets(20));
+    dynamicFormPanel.setStyle("-fx-background-color: #ffffff; -fx-background-radius: 10; -fx-border-color: #e5e7eb; -fx-border-width: 1;");
         dynamicFormPanel.setMinHeight(300);
         VBox.setVgrow(dynamicFormPanel, Priority.ALWAYS);
         
-        Label instructionLabel = new Label("Selecciona una operación");
-        instructionLabel.setStyle("-fx-text-fill: #6c7086; -fx-font-size: 14;");
+    Label instructionLabel = new Label("_");
+    instructionLabel.setStyle("-fx-text-fill: #6b7280; -fx-font-size: 14;");
         instructionLabel.setAlignment(Pos.CENTER);
         dynamicFormPanel.getChildren().add(instructionLabel);
         dynamicFormPanel.setAlignment(Pos.CENTER);
 
-        statusLabel = new Label("◆ Documentos: " + dbManager.getSize());
-        statusLabel.setStyle("-fx-text-fill: #89dceb; -fx-font-size: 14; -fx-font-weight: bold;");
+    statusLabel = new Label("Documentos: " + dbManager.getSize());
+    statusLabel.setStyle("-fx-text-fill: #2563eb; -fx-font-size: 14; -fx-font-weight: bold;");
 
         panel.getChildren().addAll(title, operationSelector, dynamicFormPanel, statusLabel);
 
@@ -209,25 +224,25 @@ public class MainView extends Application {
      * @return HBox con botones de operación
      */
     private HBox createOperationSelector() {
-        HBox selector = new HBox();
-        selector.setStyle("-fx-background-color: #1e1e2e; -fx-background-radius: 10; -fx-padding: 5;");
+    HBox selector = new HBox();
+    selector.setStyle("-fx-background-color: #eef2ff; -fx-background-radius: 10; -fx-padding: 6;");
         selector.setSpacing(0);
         selector.setAlignment(Pos.CENTER);
 
-        String[] operations = {"+ Insertar", "◉ Buscar", "✎ Actualizar", "✖ Eliminar", "⟳ Limpiar"};
+        String[] operations = {"Insertar", "Buscar", "Actualizar", "Eliminar", "Limpiar"};
         String[] ids = {"insert", "search", "update", "delete", "clear"};
 
         for (int i = 0; i < operations.length; i++) {
             final String opId = ids[i];
             Button btn = new Button(operations[i]);
-            btn.setPrefHeight(40);
-            btn.setPrefWidth(67);
+            btn.setPrefHeight(42);
+            btn.setPrefWidth(80);
             btn.setStyle(
                 "-fx-background-color: transparent; " +
-                "-fx-text-fill: #a6adc8; " +
-                "-fx-font-size: 11; " +
+                "-fx-text-fill: #1f2937; " +
+                "-fx-font-size: 12; " +
                 "-fx-font-weight: bold; " +
-                "-fx-background-radius: 6; " +
+                "-fx-background-radius: 8; " +
                 "-fx-cursor: hand; " +
                 "-fx-border-width: 0;"
             );
@@ -237,11 +252,11 @@ public class MainView extends Application {
             btn.setOnMouseEntered(e -> {
                 if (!opId.equals(currentOperation)) {
                     btn.setStyle(
-                        "-fx-background-color: #313244; " +
-                        "-fx-text-fill: #cdd6f4; " +
-                        "-fx-font-size: 11; " +
+                        "-fx-background-color: #dbeafe; " +
+                        "-fx-text-fill: #1f2937; " +
+                        "-fx-font-size: 12; " +
                         "-fx-font-weight: bold; " +
-                        "-fx-background-radius: 6; " +
+                        "-fx-background-radius: 8; " +
                         "-fx-cursor: hand; " +
                         "-fx-border-width: 0;"
                     );
@@ -252,10 +267,10 @@ public class MainView extends Application {
                 if (!opId.equals(currentOperation)) {
                     btn.setStyle(
                         "-fx-background-color: transparent; " +
-                        "-fx-text-fill: #a6adc8; " +
-                        "-fx-font-size: 11; " +
+                        "-fx-text-fill: #1f2937; " +
+                        "-fx-font-size: 12; " +
                         "-fx-font-weight: bold; " +
-                        "-fx-background-radius: 6; " +
+                        "-fx-background-radius: 8; " +
                         "-fx-cursor: hand; " +
                         "-fx-border-width: 0;"
                     );
@@ -279,14 +294,13 @@ public class MainView extends Application {
         currentOperation = operation;
         
         for (javafx.scene.Node node : container.getChildren()) {
-            if (node instanceof Button) {
-                Button btn = (Button) node;
+            if (node instanceof Button btn) {
                 btn.setStyle(
                     "-fx-background-color: transparent; " +
-                    "-fx-text-fill: #a6adc8; " +
-                    "-fx-font-size: 11; " +
+                    "-fx-text-fill: #1f2937; " +
+                    "-fx-font-size: 12; " +
                     "-fx-font-weight: bold; " +
-                    "-fx-background-radius: 6; " +
+                    "-fx-background-radius: 8; " +
                     "-fx-cursor: hand; " +
                     "-fx-border-width: 0;"
                 );
@@ -294,11 +308,11 @@ public class MainView extends Application {
         }
         
         selectedBtn.setStyle(
-            "-fx-background-color: #89b4fa; " +
-            "-fx-text-fill: #1e1e2e; " +
-            "-fx-font-size: 11; " +
+            "-fx-background-color: #2563eb; " +
+            "-fx-text-fill: #ffffff; " +
+            "-fx-font-size: 12; " +
             "-fx-font-weight: bold; " +
-            "-fx-background-radius: 6; " +
+            "-fx-background-radius: 8; " +
             "-fx-cursor: hand; " +
             "-fx-border-width: 0;"
         );
@@ -306,69 +320,54 @@ public class MainView extends Application {
         updateDynamicForm(operation);
     }
 
-    /**
-     * Actualiza el panel de formulario según la operación seleccionada.
-     * 
-     * @param operation ID de la operación
-     */
     private void updateDynamicForm(String operation) {
         dynamicFormPanel.getChildren().clear();
         dynamicFormPanel.setAlignment(Pos.TOP_LEFT);
 
         switch (operation) {
-            case "insert":
-                createInsertForm();
-                break;
-            case "search":
-                createSearchForm();
-                break;
-            case "update":
-                createUpdateForm();
-                break;
-            case "delete":
-                createDeleteForm();
-                break;
-            case "clear":
-                createClearForm();
-                break;
+            case "insert" -> createInsertForm();
+            case "search" -> createSearchForm();
+            case "update" -> createUpdateForm();
+            case "delete" -> createDeleteForm();
+            case "clear" -> createClearForm();
         }
     }
 
     private void createInsertForm() {
-        Label idLabel = new Label("ID del documento:");
-        idLabel.setStyle("-fx-text-fill: #a6adc8; -fx-font-weight: bold;");
+    Label idLabel = new Label("ID documento:");
+    idLabel.setStyle("-fx-text-fill: #1f2937; -fx-font-weight: bold;");
         
-        idField = new TextField();
-        idField.setPromptText("Ej: 1, 2, 3...");
-        idField.setStyle("-fx-background-color: #313244; -fx-text-fill: #cdd6f4; -fx-prompt-text-fill: #6c7086; -fx-background-radius: 5;");
+    idField = new TextField();
+    idField.setPromptText("Ej: 1, 2, 3...");
+    idField.setStyle("-fx-background-color: #ffffff; -fx-text-fill: #111827; -fx-prompt-text-fill: #9ca3af; -fx-background-radius: 6; -fx-border-color: #e5e7eb; -fx-border-width: 1;");
 
-        Label dataLabel = new Label("Datos (JSON):");
-        dataLabel.setStyle("-fx-text-fill: #a6adc8; -fx-font-weight: bold;");
+    Label dataLabel = new Label("Datos (JSON):");
+    dataLabel.setStyle("-fx-text-fill: #1f2937; -fx-font-weight: bold;");
         
         dataField = createSyntaxHighlightedTextArea();
-        dataField.setPromptText("{\n  \"nombre\": \"Juan\",\n  \"edad\": 25\n}");
+        dataField.setPromptText("{\n  \"nombre\": \"Giovanny\",\n  \"edad\": 19\n}");
         dataField.setPrefRowCount(10);
         VBox.setVgrow(dataField, Priority.ALWAYS);
 
-        Button executeBtn = createExecuteButton("✓ Insertar Documento", "#a6e3a1");
+    Button executeBtn = createExecuteButton("Insertar Documento", "#10b981");
         executeBtn.setOnAction(e -> handleInsert());
 
         dynamicFormPanel.getChildren().addAll(idLabel, idField, dataLabel, dataField, executeBtn);
     }
 
     private void createSearchForm() {
-        Label idLabel = new Label("ID a buscar:");
-        idLabel.setStyle("-fx-text-fill: #a6adc8; -fx-font-weight: bold;");
+    Label idLabel = new Label("ID a buscar:");
+    idLabel.setStyle("-fx-text-fill: #1f2937; -fx-font-weight: bold;");
         
-        idField = new TextField();
-        idField.setPromptText("Ej: 42");
-        idField.setStyle("-fx-background-color: #313244; -fx-text-fill: #cdd6f4; -fx-prompt-text-fill: #6c7086; -fx-background-radius: 5;");
+    idField = new TextField();
+    idField.setPromptText("Ej: 42");
+    idField.setStyle("-fx-background-color: #ffffff; -fx-text-fill: #111827; -fx-prompt-text-fill: #9ca3af; -fx-background-radius: 6; -fx-border-color: #e5e7eb; -fx-border-width: 1;");
         idField.setOnAction(e -> handleSearch());
 
-        Button executeBtn = createExecuteButton("◉ Buscar por ID", "#89b4fa");
+    Button executeBtn = createExecuteButton("Buscar por ID", "#3b82f6");
         executeBtn.setOnAction(e -> handleSearch());
         
-        Button searchByFieldBtn = createExecuteButton("⊕ Buscar por Campo", "#74c7ec");
+    Button searchByFieldBtn = createExecuteButton("Buscar por Campo", "#06b6d4");
         searchByFieldBtn.setOnAction(e -> handleSearchByField());
 
         Region spacer = new Region();
@@ -378,64 +377,58 @@ public class MainView extends Application {
     }
 
     private void createUpdateForm() {
-        Label idLabel = new Label("ID del documento:");
-        idLabel.setStyle("-fx-text-fill: #a6adc8; -fx-font-weight: bold;");
+    Label idLabel = new Label("ID del documento:");
+    idLabel.setStyle("-fx-text-fill: #1f2937; -fx-font-weight: bold;");
         
-        idField = new TextField();
-        idField.setPromptText("Ej: 1");
-        idField.setStyle("-fx-background-color: #313244; -fx-text-fill: #cdd6f4; -fx-prompt-text-fill: #6c7086; -fx-background-radius: 5;");
+    idField = new TextField();
+    idField.setPromptText("Ej: 1");
+    idField.setStyle("-fx-background-color: #ffffff; -fx-text-fill: #111827; -fx-prompt-text-fill: #9ca3af; -fx-background-radius: 6; -fx-border-color: #e5e7eb; -fx-border-width: 1;");
 
-        Label dataLabel = new Label("Nuevos datos (JSON):");
-        dataLabel.setStyle("-fx-text-fill: #a6adc8; -fx-font-weight: bold;");
+    Label dataLabel = new Label("Nuevos datos (JSON):");
+    dataLabel.setStyle("-fx-text-fill: #1f2937; -fx-font-weight: bold;");
         
         dataField = createSyntaxHighlightedTextArea();
-        dataField.setPromptText("{\n  \"nombre\": \"Juan Actualizado\"\n}");
+        dataField.setPromptText("{\n  \"nombre\": \"Giovanny Actualizado\"\n}");
         dataField.setPrefRowCount(10);
         VBox.setVgrow(dataField, Priority.ALWAYS);
 
-        Button executeBtn = createExecuteButton("✓ Actualizar Documento", "#f9e2af");
+    Button executeBtn = createExecuteButton("Actualizar Documento", "#f59e0b");
         executeBtn.setOnAction(e -> handleUpdate());
 
         dynamicFormPanel.getChildren().addAll(idLabel, idField, dataLabel, dataField, executeBtn);
     }
 
     private void createDeleteForm() {
-        Label idLabel = new Label("ID a eliminar:");
-        idLabel.setStyle("-fx-text-fill: #a6adc8; -fx-font-weight: bold;");
+    Label idLabel = new Label("ID a eliminar:");
+    idLabel.setStyle("-fx-text-fill: #1f2937; -fx-font-weight: bold;");
         
-        idField = new TextField();
-        idField.setPromptText("Ej: 5");
-        idField.setStyle("-fx-background-color: #313244; -fx-text-fill: #cdd6f4; -fx-prompt-text-fill: #6c7086; -fx-background-radius: 5;");
+    idField = new TextField();
+    idField.setPromptText("Ej: 5");
+    idField.setStyle("-fx-background-color: #ffffff; -fx-text-fill: #111827; -fx-prompt-text-fill: #9ca3af; -fx-background-radius: 6; -fx-border-color: #e5e7eb; -fx-border-width: 1;");
         idField.setOnAction(e -> handleDelete());
 
-        Button executeBtn = createExecuteButton("✖ Eliminar Documento", "#f38ba8");
+    Button executeBtn = createExecuteButton("Eliminar Documento", "#ef4444");
         executeBtn.setOnAction(e -> handleDelete());
-
-        Label warningLabel = new Label("⚠ ADVERTENCIA: Esta acción es permanente");
-        warningLabel.setStyle("-fx-text-fill: #fab387; -fx-font-size: 12;");
-        warningLabel.setWrapText(true);
 
         Region spacer = new Region();
         VBox.setVgrow(spacer, Priority.ALWAYS);
 
-        dynamicFormPanel.getChildren().addAll(idLabel, idField, executeBtn, warningLabel, spacer);
+        dynamicFormPanel.getChildren().addAll(idLabel, idField, executeBtn, spacer);
     }
 
     private void createClearForm() {
-        Label warningLabel = new Label("⚠ ADVERTENCIA");
-        warningLabel.setStyle("-fx-text-fill: #f38ba8; -fx-font-size: 16; -fx-font-weight: bold;");
-        
-        Label infoLabel = new Label("Esta acción eliminará TODOS los documentos de la base de datos.");
-        infoLabel.setStyle("-fx-text-fill: #a6adc8; -fx-font-size: 13;");
+       
+    Label infoLabel = new Label("Esta acción eliminará TODOS los documentos de la base de datos.");
+    infoLabel.setStyle("-fx-text-fill: #374151; -fx-font-size: 13;");
         infoLabel.setWrapText(true);
 
-        Button executeBtn = createExecuteButton("⟳ Limpiar Base de Datos", "#f38ba8");
+    Button executeBtn = createExecuteButton("Borrar Base de Datos", "#ef4444");
         executeBtn.setOnAction(e -> handleClear());
 
         Region spacer = new Region();
         VBox.setVgrow(spacer, Priority.ALWAYS);
 
-        dynamicFormPanel.getChildren().addAll(warningLabel, infoLabel, new Label(""), executeBtn, spacer);
+        dynamicFormPanel.getChildren().addAll(infoLabel, new Label(""), executeBtn, spacer);
         dynamicFormPanel.setAlignment(Pos.CENTER);
     }
 
@@ -447,14 +440,16 @@ public class MainView extends Application {
     private TextArea createSyntaxHighlightedTextArea() {
         TextArea area = new TextArea();
         area.setStyle(
-            "-fx-background-color: #1e1e2e; " +
-            "-fx-text-fill: #cdd6f4; " +
-            "-fx-control-inner-background: #1e1e2e; " +
+            "-fx-background-color: #ffffff; " +
+            "-fx-text-fill: #111827; " +
+            "-fx-control-inner-background: #ffffff; " +
             "-fx-font-family: 'Consolas', 'Monaco', monospace; " +
             "-fx-font-size: 13; " +
-            "-fx-highlight-fill: #45475a; " +
-            "-fx-highlight-text-fill: #cdd6f4; " +
-            "-fx-background-radius: 5;"
+            "-fx-highlight-fill: #dbeafe; " +
+            "-fx-highlight-text-fill: #111827; " +
+            "-fx-background-radius: 6; " +
+            "-fx-border-color: #e5e7eb; " +
+            "-fx-border-width: 1;"
         );
         
         area.textProperty().addListener((obs, oldVal, newVal) -> {
@@ -470,33 +465,33 @@ public class MainView extends Application {
             if (!text.trim().isEmpty()) {
                 objectMapper.readTree(text);
             }
-        } catch (Exception e) {
+        } catch (JsonProcessingException e) {
             hasError = true;
         }
         
         if (hasError && !text.trim().isEmpty()) {
             area.setStyle(
-                "-fx-background-color: #1e1e2e; " +
-                "-fx-text-fill: #f38ba8; " +
-                "-fx-control-inner-background: #1e1e2e; " +
+                "-fx-background-color: #fff7ed; " +
+                "-fx-text-fill: #b91c1c; " +
+                "-fx-control-inner-background: #fff7ed; " +
                 "-fx-font-family: 'Consolas', 'Monaco', monospace; " +
                 "-fx-font-size: 13; " +
-                "-fx-border-color: #f38ba8; " +
+                "-fx-border-color: #f59e0b; " +
                 "-fx-border-width: 2; " +
-                "-fx-background-radius: 5; " +
-                "-fx-border-radius: 5;"
+                "-fx-background-radius: 6; " +
+                "-fx-border-radius: 6;"
             );
         } else {
             area.setStyle(
-                "-fx-background-color: #1e1e2e; " +
-                "-fx-text-fill: #a6e3a1; " +
-                "-fx-control-inner-background: #1e1e2e; " +
+                "-fx-background-color: #ffffff; " +
+                "-fx-text-fill: #065f46; " +
+                "-fx-control-inner-background: #ffffff; " +
                 "-fx-font-family: 'Consolas', 'Monaco', monospace; " +
                 "-fx-font-size: 13; " +
-                "-fx-border-color: #45475a; " +
+                "-fx-border-color: #e5e7eb; " +
                 "-fx-border-width: 1; " +
-                "-fx-background-radius: 5; " +
-                "-fx-border-radius: 5;"
+                "-fx-background-radius: 6; " +
+                "-fx-border-radius: 6;"
             );
         }
     }
@@ -547,14 +542,14 @@ public class MainView extends Application {
      * @return StackPane con el árbol y controles
      */
     private StackPane createInteractiveTreePanel() {
-        treeVisualizer = new TreeVisualizer();
+        treeVisualizer = new TreeRender();
         treeVisualizer.setPrefSize(3000, 2000);
 
-        StackPane wrapper = new StackPane(treeVisualizer);
-        wrapper.setStyle("-fx-background-color: #1e1e2e;");
+    StackPane wrapper = new StackPane(treeVisualizer);
+    wrapper.setStyle("-fx-background-color: #f7f9fc;");
         
-        ScrollPane scrollPane = new ScrollPane(wrapper);
-        scrollPane.setStyle("-fx-background-color: #1e1e2e; -fx-background: #1e1e2e;");
+    ScrollPane scrollPane = new ScrollPane(wrapper);
+    scrollPane.setStyle("-fx-background-color: #f7f9fc; -fx-background: #f7f9fc;");
         scrollPane.setPannable(true);
         scrollPane.setHvalue(0.5);
         scrollPane.setVvalue(0.1);
@@ -632,16 +627,16 @@ public class MainView extends Application {
         controls.setMaxWidth(60);
         controls.setMaxHeight(150);
         controls.setStyle(
-            "-fx-background-color: rgba(24, 24, 37, 0.95); " +
+            "-fx-background-color: rgba(255, 255, 255, 0.95); " +
             "-fx-padding: 8; " +
             "-fx-background-radius: 8; " +
-            "-fx-border-color: #313244; " +
+            "-fx-border-color: #e5e7eb; " +
             "-fx-border-radius: 8; " +
             "-fx-border-width: 1;"
         );
 
-        Label zoomLabel = new Label("Zoom");
-        zoomLabel.setStyle("-fx-text-fill: #a6adc8; -fx-font-size: 10; -fx-font-weight: bold;");
+    Label zoomLabel = new Label("Zoom");
+    zoomLabel.setStyle("-fx-text-fill: #6b7280; -fx-font-size: 10; -fx-font-weight: bold;");
         zoomLabel.setAlignment(Pos.CENTER);
         zoomLabel.setMaxWidth(Double.MAX_VALUE);
 
@@ -653,17 +648,17 @@ public class MainView extends Application {
             btn.setPrefSize(40, 30);
             btn.setMaxSize(40, 30);
             btn.setStyle(
-                "-fx-background-color: #313244; " +
-                "-fx-text-fill: #cdd6f4; " +
+                "-fx-background-color: #eef2ff; " +
+                "-fx-text-fill: #1f2937; " +
                 "-fx-font-size: 13; " +
                 "-fx-font-weight: bold; " +
-                "-fx-background-radius: 5; " +
+                "-fx-background-radius: 6; " +
                 "-fx-cursor: hand;"
             );
             
             btn.setOnMouseEntered(e -> btn.setStyle(
-                "-fx-background-color: #45475a; " +
-                "-fx-text-fill: #cdd6f4; " +
+                "-fx-background-color: #dbeafe; " +
+                "-fx-text-fill: #1f2937; " +
                 "-fx-font-size: 14; " +
                 "-fx-font-weight: bold; " +
                 "-fx-background-radius: 6; " +
@@ -671,8 +666,8 @@ public class MainView extends Application {
             ));
             
             btn.setOnMouseExited(e -> btn.setStyle(
-                "-fx-background-color: #313244; " +
-                "-fx-text-fill: #cdd6f4; " +
+                "-fx-background-color: #eef2ff; " +
+                "-fx-text-fill: #1f2937; " +
                 "-fx-font-size: 14; " +
                 "-fx-font-weight: bold; " +
                 "-fx-background-radius: 6; " +
@@ -704,6 +699,84 @@ public class MainView extends Application {
         treeVisualizer.setScaleY(scale);
     }
 
+    /**
+     * Creates the Data view panel containing a TableView of documents.
+     */
+    private VBox createDataViewPanel() {
+        VBox container = new VBox(10);
+        container.setStyle("-fx-background-color: #ffffff;");
+        container.setPadding(new Insets(10));
+
+        Label title = new Label("Vista de Datos");
+        title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 16));
+        title.setStyle("-fx-text-fill: #111827;");
+
+        dataTable = new TableView<>();
+        dataTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+        dataTable.setStyle("-fx-background-color: #ffffff; -fx-border-color: #e5e7eb; -fx-border-width: 1; -fx-background-radius: 8;");
+
+        TableColumn<JsonDocument, Number> idCol = new TableColumn<>("ID");
+        idCol.setCellValueFactory(cd -> new javafx.beans.property.SimpleIntegerProperty(cd.getValue().getId()));
+        idCol.setMinWidth(80);
+
+        TableColumn<JsonDocument, String> jsonCol = new TableColumn<>("JSON");
+        jsonCol.setCellValueFactory(cd -> {
+            try {
+                String pretty = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(cd.getValue().getData());
+                return new javafx.beans.property.SimpleStringProperty(pretty);
+            } catch (Exception ex) {
+                return new javafx.beans.property.SimpleStringProperty(cd.getValue().getData().toString());
+            }
+        });
+        jsonCol.setMinWidth(300);
+
+        dataTable.getColumns().setAll(idCol, jsonCol);
+
+        dataTable.setRowFactory(tv -> {
+            TableRow<JsonDocument> row = new TableRow<>();
+            row.setOnMouseClicked(evt -> {
+                if (!row.isEmpty() && evt.getButton() == MouseButton.PRIMARY && evt.getClickCount() == 1) {
+                    JsonDocument doc = row.getItem();
+                    showDocumentDetails(doc.getId(), doc);
+                }
+            });
+            return row;
+        });
+
+        refreshDataView();
+
+        VBox.setVgrow(dataTable, Priority.ALWAYS);
+        container.getChildren().addAll(title, dataTable);
+        return container;
+    }
+
+    /**
+     * Refresh the Data view table items from the DatabaseManager.
+     */
+    private void refreshDataView() {
+        if (dataTable != null) {
+            var items = javafx.collections.FXCollections.observableArrayList(dbManager.getAllDocuments());
+            dataTable.setItems(items);
+        }
+    }
+
+    /**
+     * Switch center pane to Tree view.
+     */
+    private void switchToTreeView() {
+        currentViewMode = ViewMode.TREE;
+        mainLayout.setCenter(treeContainer);
+    }
+
+    /**
+     * Switch center pane to Data view.
+     */
+    private void switchToDataView() {
+        currentViewMode = ViewMode.DATA;
+        refreshDataView();
+        mainLayout.setCenter(dataViewContainer);
+    }
+
     private void resetZoom() {
         scale = 1.0;
         translateX = 0;
@@ -721,30 +794,32 @@ public class MainView extends Application {
      */
     private VBox createRightPanel() {
         VBox panel = new VBox(15);
-        panel.setPadding(new Insets(20));
-        panel.setPrefWidth(380);
-        panel.setStyle("-fx-background-color: #181825;");
+    panel.setPadding(new Insets(20));
+    panel.setPrefWidth(380);
+    panel.setStyle("-fx-background-color: #ffffff;");
 
         // Node Details Section - Panel estructurado
         VBox detailsSection = createNodeDetailsPanel();
 
         // JSON Viewer Section
-        Label jsonTitle = new Label("{ } Contenido JSON");
-        jsonTitle.setFont(Font.font("Arial", FontWeight.BOLD, 16));
-        jsonTitle.setStyle("-fx-text-fill: #cdd6f4;");
+    Label jsonTitle = new Label("Visualización de la información");
+    jsonTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 16));
+    jsonTitle.setStyle("-fx-text-fill: #111827;");
 
         jsonViewer = new TextArea();
         jsonViewer.setEditable(false);
         jsonViewer.setWrapText(true);
         jsonViewer.setStyle(
-            "-fx-background-color: #1e1e2e; " +
-            "-fx-text-fill: #a6e3a1; " +
-            "-fx-control-inner-background: #1e1e2e; " +
+            "-fx-background-color: #ffffff; " +
+            "-fx-text-fill: #1f2937; " +
+            "-fx-control-inner-background: #ffffff; " +
             "-fx-font-family: 'Consolas', 'Monaco', monospace; " +
             "-fx-font-size: 13; " +
-            "-fx-background-radius: 8;"
+            "-fx-background-radius: 8; " +
+            "-fx-border-color: #e5e7eb; " +
+            "-fx-border-width: 1;"
         );
-        jsonViewer.setText("Haz clic en un nodo del arbol\npara ver su contenido aqui.");
+        jsonViewer.setText("Haz clic en un nodo del árbol\n. El contenido se desplegará en formato JSON.");
 
         VBox.setVgrow(jsonViewer, Priority.ALWAYS);
 
@@ -758,35 +833,35 @@ public class MainView extends Application {
      * @return VBox con la estructura visual del panel de detalles
      */
     private VBox createNodeDetailsPanel() {
-        VBox section = new VBox(0);
-        section.setStyle("-fx-background-color: #1e1e2e; -fx-background-radius: 10;");
+    VBox section = new VBox(0);
+    section.setStyle("-fx-background-color: #ffffff; -fx-background-radius: 10; -fx-border-color: #e5e7eb; -fx-border-width: 1;");
         section.setPadding(new Insets(20));
 
         // Titulo
-        Label title = new Label("Detalles del Nodo");
-        title.setFont(Font.font("Arial", FontWeight.BOLD, 18));
-        title.setStyle("-fx-text-fill: #89dceb;");
+    Label title = new Label("Información del Nodo");
+    title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 18));
+    title.setStyle("-fx-text-fill: #2563eb;");
         VBox.setMargin(title, new Insets(0, 0, 20, 0));
 
         // ID Section
-        Label idLabel = new Label("ID");
-        idLabel.setStyle("-fx-text-fill: #6c7086; -fx-font-size: 12;");
+    Label idLabel = new Label("ID");
+    idLabel.setStyle("-fx-text-fill: #6b7280; -fx-font-size: 12;");
         
-        idValueLabel = new Label("-");
-        idValueLabel.setFont(Font.font("Arial", FontWeight.BOLD, 24));
-        idValueLabel.setStyle("-fx-text-fill: #cdd6f4;");
+    idValueLabel = new Label("-");
+    idValueLabel.setFont(Font.font("Segoe UI", FontWeight.BOLD, 24));
+    idValueLabel.setStyle("-fx-text-fill: #111827;");
         VBox.setMargin(idValueLabel, new Insets(2, 0, 15, 0));
 
         // Data Section
-        Label dataLabel = new Label("Data");
-        dataLabel.setStyle("-fx-text-fill: #6c7086; -fx-font-size: 12;");
+    Label dataLabel = new Label("Datos");
+    dataLabel.setStyle("-fx-text-fill: #6b7280; -fx-font-size: 12;");
         
-        dataContentBox = new VBox(2);
-        dataContentBox.setStyle("-fx-background-color: #313244; -fx-background-radius: 6; -fx-padding: 10;");
+    dataContentBox = new VBox(2);
+    dataContentBox.setStyle("-fx-background-color: #f3f4f6; -fx-background-radius: 6; -fx-padding: 10;");
         VBox.setMargin(dataContentBox, new Insets(5, 0, 15, 0));
         
-        Label dataPlaceholder = new Label("Selecciona un nodo");
-        dataPlaceholder.setStyle("-fx-text-fill: #6c7086; -fx-font-size: 13;");
+    Label dataPlaceholder = new Label("Selecciona un nodo");
+    dataPlaceholder.setStyle("-fx-text-fill: #6b7280; -fx-font-size: 13;");
         dataContentBox.getChildren().add(dataPlaceholder);
 
         // Height and Balance Factor - Side by side
@@ -794,44 +869,29 @@ public class MainView extends Application {
         metricsRow.setAlignment(Pos.CENTER_LEFT);
         
         VBox heightBox = new VBox(2);
-        Label heightLabel = new Label("Altura");
-        heightLabel.setStyle("-fx-text-fill: #6c7086; -fx-font-size: 12;");
-        heightValueLabel = new Label("-");
-        heightValueLabel.setFont(Font.font("Arial", FontWeight.BOLD, 20));
-        heightValueLabel.setStyle("-fx-text-fill: #a6e3a1;");
+    Label heightLabel = new Label("Altura");
+    heightLabel.setStyle("-fx-text-fill: #6b7280; -fx-font-size: 12;");
+    heightValueLabel = new Label("-");
+    heightValueLabel.setFont(Font.font("Segoe UI", FontWeight.BOLD, 20));
+    heightValueLabel.setStyle("-fx-text-fill: #16a34a;");
         heightBox.getChildren().addAll(heightLabel, heightValueLabel);
         
         VBox balanceBox = new VBox(2);
-        Label balanceLabel = new Label("Factor Balance");
-        balanceLabel.setStyle("-fx-text-fill: #6c7086; -fx-font-size: 12;");
-        balanceValueLabel = new Label("-");
-        balanceValueLabel.setFont(Font.font("Arial", FontWeight.BOLD, 20));
-        balanceValueLabel.setStyle("-fx-text-fill: #f38ba8;");
+    Label balanceLabel = new Label("Factor Balance");
+    balanceLabel.setStyle("-fx-text-fill: #6b7280; -fx-font-size: 12;");
+    balanceValueLabel = new Label("-");
+    balanceValueLabel.setFont(Font.font("Segoe UI", FontWeight.BOLD, 20));
+    balanceValueLabel.setStyle("-fx-text-fill: #ef4444;");
         balanceBox.getChildren().addAll(balanceLabel, balanceValueLabel);
         
         metricsRow.getChildren().addAll(heightBox, balanceBox);
         VBox.setMargin(metricsRow, new Insets(0, 0, 15, 0));
 
-        // Estado Section
-        Label stateLabel = new Label("Estado");
-        stateLabel.setStyle("-fx-text-fill: #6c7086; -fx-font-size: 12;");
-        
-        stateValueLabel = new Label("-");
-        stateValueLabel.setStyle(
-            "-fx-background-color: #313244; " +
-            "-fx-text-fill: #cdd6f4; " +
-            "-fx-padding: 6 12; " +
-            "-fx-background-radius: 4; " +
-            "-fx-font-size: 13;"
-        );
-        VBox.setMargin(stateValueLabel, new Insets(5, 0, 0, 0));
-
         section.getChildren().addAll(
             title, 
             idLabel, idValueLabel, 
             dataLabel, dataContentBox, 
-            metricsRow, 
-            stateLabel, stateValueLabel
+            metricsRow
         );
 
         nodeDetailsPanel = section;
@@ -852,14 +912,6 @@ public class MainView extends Application {
         heightValueLabel.setText("-");
         balanceValueLabel.setText("-");
         balanceValueLabel.setStyle("-fx-text-fill: #f38ba8; -fx-font-size: 20; -fx-font-weight: bold;");
-        stateValueLabel.setText("-");
-        stateValueLabel.setStyle(
-            "-fx-background-color: #313244; " +
-            "-fx-text-fill: #cdd6f4; " +
-            "-fx-padding: 6 12; " +
-            "-fx-background-radius: 4; " +
-            "-fx-font-size: 13;"
-        );
     }
 
     /**
@@ -868,26 +920,26 @@ public class MainView extends Application {
      * @return VBox con log y controles
      */
     private VBox createCollapsibleLogPanel() {
-        VBox panel = new VBox(8);
-        panel.setPadding(new Insets(12, 20, 12, 20));
-        panel.setStyle("-fx-background-color: #11111b; -fx-border-color: #313244; -fx-border-width: 1 0 0 0;");
+    VBox panel = new VBox(8);
+    panel.setPadding(new Insets(12, 20, 12, 20));
+    panel.setStyle("-fx-background-color: #ffffff; -fx-border-color: #e5e7eb; -fx-border-width: 1 0 0 0;");
 
         HBox header = new HBox(10);
         header.setAlignment(Pos.CENTER_LEFT);
         
-        Label title = new Label("▣ Log de Operaciones");
-        title.setStyle("-fx-text-fill: #a6adc8; -fx-font-weight: bold; -fx-font-size: 13;");
+    Label title = new Label("Registro de Operaciones");
+    title.setStyle("-fx-text-fill: #374151; -fx-font-weight: bold; -fx-font-size: 13;");
         
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         
         Button collapseBtn = new Button("Ocultar");
         collapseBtn.setStyle(
-            "-fx-background-color: #313244; " +
-            "-fx-text-fill: #cdd6f4; " +
+            "-fx-background-color: #eef2ff; " +
+            "-fx-text-fill: #1f2937; " +
             "-fx-font-size: 11; " +
             "-fx-padding: 6 12; " +
-            "-fx-background-radius: 5; " +
+            "-fx-background-radius: 6; " +
             "-fx-cursor: hand;"
         );
         
@@ -897,12 +949,14 @@ public class MainView extends Application {
         logArea.setEditable(false);
         logArea.setPrefRowCount(4);
         logArea.setStyle(
-            "-fx-background-color: #1e1e2e; " +
-            "-fx-text-fill: #6c7086; " +
-            "-fx-control-inner-background: #1e1e2e; " +
+            "-fx-background-color: #ffffff; " +
+            "-fx-text-fill: #374151; " +
+            "-fx-control-inner-background: #ffffff; " +
             "-fx-font-family: 'Consolas', monospace; " +
             "-fx-font-size: 12; " +
-            "-fx-background-radius: 5;"
+            "-fx-background-radius: 6; " +
+            "-fx-border-color: #e5e7eb; " +
+            "-fx-border-width: 1;"
         );
 
         collapseBtn.setOnAction(e -> {
@@ -946,6 +1000,7 @@ public class MainView extends Application {
             updateStatus();
             jsonViewer.setText("Nueva base de datos creada.");
             resetNodeDetails("Base de datos vacia");
+            if (currentViewMode == ViewMode.DATA) refreshDataView();
             log("[INFO] Nueva base de datos creada");
         }
     }
@@ -984,6 +1039,7 @@ public class MainView extends Application {
             updateStatus();
             log("[INSERT] Documento insertado: " + id);
             showDocumentDetails(id, doc);
+            if (currentViewMode == ViewMode.DATA) refreshDataView();
 
             idField.clear();
             dataField.clear();
@@ -1039,7 +1095,7 @@ public class MainView extends Application {
                     sb.append("ID: ").append(doc.getId()).append("\n");
                     try {
                         sb.append(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(doc.getData()));
-                    } catch (Exception e) {
+                    } catch (JsonProcessingException e) {
                         sb.append(doc.getData().toString());
                     }
                     sb.append("\n\n");
@@ -1048,7 +1104,7 @@ public class MainView extends Application {
                 resetNodeDetails("Busqueda: " + docs.size() + " resultados");
             } else {
                 jsonViewer.setText("No se encontraron resultados.");
-                resetNodeDetails("Sin resultados");
+                resetNodeDetails("No hay resultados");
             }
         }
     }
@@ -1081,12 +1137,13 @@ public class MainView extends Application {
                 log("[UPDATE] Documento actualizado: " + id);
                 idField.clear();
                 dataField.clear();
+                if (currentViewMode == ViewMode.DATA) refreshDataView();
             } else {
                 showError("Documento no existe: " + id);
                 log("[ERROR] No se pudo actualizar, documento no existe: " + id);
             }
 
-        } catch (Exception e) {
+        } catch (JsonProcessingException e) {
             showError("JSON inválido: " + e.getMessage());
             log("[ERROR] Error al actualizar: " + e.getMessage());
         }
@@ -1123,6 +1180,7 @@ public class MainView extends Application {
                 resetNodeDetails("Documento eliminado");
                 log("[DELETE] Documento eliminado: " + id);
                 idField.clear();
+                if (currentViewMode == ViewMode.DATA) refreshDataView();
             } else {
                 showError("Documento no encontrado: " + id);
                 log("[ERROR] No se pudo eliminar, documento no existe: " + id);
@@ -1143,6 +1201,7 @@ public class MainView extends Application {
             updateStatus();
             jsonViewer.setText("Base de datos limpiada.");
             resetNodeDetails("Base de datos vacia");
+            if (currentViewMode == ViewMode.DATA) refreshDataView();
             log("[CLEAR] Base de datos limpiada");
         }
     }
@@ -1158,6 +1217,7 @@ public class MainView extends Application {
             treeVisualizer.setTree(dbManager.getIndex());
             treeVisualizer.drawTree(true);
             updateStatus();
+            if (currentViewMode == ViewMode.DATA) refreshDataView();
             log("[LOAD] Base de datos cargada desde: " + file.getName());
         }
     }
@@ -1175,7 +1235,7 @@ public class MainView extends Application {
                 objectMapper.writeValue(file, docs);
                 log("[SAVE] Base de datos guardada en: " + file.getName());
                 showInfo("Base de datos guardada correctamente.");
-            } catch (Exception e) {
+            } catch (IOException e) {
                 showError("Error al guardar: " + e.getMessage());
                 log("[ERROR] Error al guardar: " + e.getMessage());
             }
@@ -1203,17 +1263,17 @@ public class MainView extends Application {
                             entry.getValue().asText() : 
                             entry.getValue().toString();
                         Label fieldLabel = new Label(entry.getKey() + "  " + value);
-                        fieldLabel.setStyle("-fx-text-fill: #cdd6f4; -fx-font-size: 13;");
+                        fieldLabel.setStyle("-fx-text-fill: #111827; -fx-font-size: 13;");
                         dataContentBox.getChildren().add(fieldLabel);
                     });
                 } else {
                     Label dataLabel = new Label(data.toString());
-                    dataLabel.setStyle("-fx-text-fill: #cdd6f4; -fx-font-size: 13;");
+                    dataLabel.setStyle("-fx-text-fill: #111827; -fx-font-size: 13;");
                     dataContentBox.getChildren().add(dataLabel);
                 }
             } catch (Exception e) {
                 Label errorLabel = new Label("Error al parsear data");
-                errorLabel.setStyle("-fx-text-fill: #f38ba8; -fx-font-size: 13;");
+                errorLabel.setStyle("-fx-text-fill: #b91c1c; -fx-font-size: 13;");
                 dataContentBox.getChildren().add(errorLabel);
             }
             
@@ -1224,41 +1284,21 @@ public class MainView extends Application {
                 balanceValueLabel.setText(String.valueOf(balanceFactor));
                 
                 if (balanceFactor >= -1 && balanceFactor <= 1) {
-                    balanceValueLabel.setStyle("-fx-text-fill: #a6e3a1; -fx-font-size: 20; -fx-font-weight: bold;");
+                    balanceValueLabel.setStyle("-fx-text-fill: #16a34a; -fx-font-size: 20; -fx-font-weight: bold;");
                 } else {
-                    balanceValueLabel.setStyle("-fx-text-fill: #f38ba8; -fx-font-size: 20; -fx-font-weight: bold;");
+                    balanceValueLabel.setStyle("-fx-text-fill: #ef4444; -fx-font-size: 20; -fx-font-weight: bold;");
                 }
                 
-                String state = getNodeState(balanceFactor);
-                stateValueLabel.setText(state);
-                
-                String stateColor;
-                if (state.equals("Balanceado")) {
-                    stateColor = "#a6e3a1";
-                } else if (state.equals("Aceptable")) {
-                    stateColor = "#f9e2af";
-                } else {
-                    stateColor = "#f38ba8";
-                }
-                stateValueLabel.setStyle(
-                    "-fx-background-color: #313244; " +
-                    "-fx-text-fill: " + stateColor + "; " +
-                    "-fx-padding: 6 12; " +
-                    "-fx-background-radius: 4; " +
-                    "-fx-font-size: 13; " +
-                    "-fx-font-weight: bold;"
-                );
             } else {
                 heightValueLabel.setText("-");
                 balanceValueLabel.setText("-");
-                stateValueLabel.setText("-");
             }
             
             String jsonStr = objectMapper.writerWithDefaultPrettyPrinter()
                     .writeValueAsString(doc.getData());
             jsonViewer.setText(jsonStr);
             
-        } catch (Exception e) {
+        } catch (JsonProcessingException e) {
             idValueLabel.setText("Error");
             dataContentBox.getChildren().clear();
             Label errorLabel = new Label(e.getMessage());
@@ -1303,12 +1343,7 @@ public class MainView extends Application {
      * @param balanceFactor Factor de balance del nodo
      * @return Descripcion del estado
      */
-    private String getNodeState(int balanceFactor) {
-        if (balanceFactor > 1) return "Desbalanceado (Der pesado)";
-        if (balanceFactor < -1) return "Desbalanceado (Izq pesado)";
-        if (balanceFactor == 0) return "Perfecto";
-        return "Aceptable";
-    }
+    // Estado de nodo removido del panel; helper no utilizado.
 
     /**
      * Calcula el nivel de un nodo en el árbol.
@@ -1328,7 +1363,7 @@ public class MainView extends Application {
     }
 
     private void updateStatus() {
-        statusLabel.setText("◆ Documentos: " + dbManager.getSize());
+        statusLabel.setText("Documentos: " + dbManager.getSize());
     }
 
     private void log(String message) {

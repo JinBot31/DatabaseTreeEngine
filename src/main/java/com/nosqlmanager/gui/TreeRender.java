@@ -24,7 +24,7 @@ import javafx.util.Duration;
  * Componente visual que dibuja el árbol AVL de forma interactiva.
  * Los nodos se pueden clickear para ver el documento JSON asociado.
  */
-public class TreeVisualizer extends Pane {
+public class TreeRender extends Pane {
 
     private static final double NODE_RADIUS = 25;
     private static final double VERTICAL_SPACING = 85;
@@ -32,7 +32,7 @@ public class TreeVisualizer extends Pane {
     private static final Duration ANIMATION_DURATION = Duration.millis(500);
 
     private AVLTree<Integer, JsonDocument> tree;
-    private Map<Integer, Point2D> nodePositions = new HashMap<>();
+    private final Map<Integer, Point2D> nodePositions = new HashMap<>();
     private NodeClickHandler clickHandler;
     private Integer highlightedKey = null;
 
@@ -43,8 +43,8 @@ public class TreeVisualizer extends Pane {
         void onNodeClick(Integer key, JsonDocument document);
     }
 
-    public TreeVisualizer() {
-        this.setStyle("-fx-background-color: #1e1e2e;");
+    public TreeRender() {
+        this.setStyle("-fx-background-color: #f7f9fc;");
         this.setMinSize(800, 500);
     }
 
@@ -83,9 +83,9 @@ public class TreeVisualizer extends Pane {
     }
 
     private void drawEmptyMessage() {
-        Text text = new Text("🌳 Árbol vacío - Agrega documentos para comenzar");
-        text.setFill(Color.web("#cdd6f4"));
-        text.setFont(Font.font("Arial", FontWeight.NORMAL, 18));
+    Text text = new Text("🌳 Árbol vacío - Agrega documentos para comenzar");
+    text.setFill(Color.web("#374151"));
+    text.setFont(Font.font("Segoe UI", FontWeight.NORMAL, 18));
         text.setX(this.getWidth() / 2 - 200);
         text.setY(this.getHeight() / 2);
         this.getChildren().add(text);
@@ -135,7 +135,7 @@ public class TreeVisualizer extends Pane {
 
     private Line createLine(Point2D from, Point2D to, boolean animate) {
         Line line = new Line(from.getX(), from.getY(), to.getX(), to.getY());
-        line.setStroke(Color.web("#585b70"));
+    line.setStroke(Color.web("#d1d5db"));
         line.setStrokeWidth(2);
 
         if (animate) {
@@ -166,25 +166,25 @@ public class TreeVisualizer extends Pane {
         Integer key = node.getKey();
         boolean isHighlighted = key.equals(highlightedKey);
 
-        // Círculo del nodo
+        // Círculo del nodo (gris por defecto, gris oscuro si resaltado)
         Circle circle = new Circle(x, y, NODE_RADIUS);
-        circle.setFill(isHighlighted ? Color.web("#f38ba8") : Color.web("#89b4fa"));
-        circle.setStroke(isHighlighted ? Color.web("#f5c2e7") : Color.web("#cdd6f4"));
+        circle.setFill(isHighlighted ? Color.web("#9ca3af") : Color.web("#d1d5db"));
+        circle.setStroke(isHighlighted ? Color.web("#6b7280") : Color.web("#9ca3af"));
         circle.setStrokeWidth(3);
         circle.setCursor(javafx.scene.Cursor.HAND);
 
         // Texto con la clave
         Text keyText = new Text(String.valueOf(key));
-        keyText.setFill(Color.web("#1e1e2e"));
-        keyText.setFont(Font.font("Arial", FontWeight.BOLD, 12));
+        keyText.setFill(Color.web("#111827")); // negro para mejor contraste sobre gris
+    keyText.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
         keyText.setX(x - keyText.getLayoutBounds().getWidth() / 2);
         keyText.setY(y + 5);
 
         // Texto con la altura (factor de balance)
         int balance = getBalance(node);
         Text balanceText = new Text("h:" + node.getHeight() + " b:" + balance);
-        balanceText.setFill(Color.web("#a6adc8"));
-        balanceText.setFont(Font.font("Arial", FontWeight.NORMAL, 9));
+    balanceText.setFill(Color.web("#6b7280"));
+    balanceText.setFont(Font.font("Segoe UI", FontWeight.NORMAL, 9));
         balanceText.setX(x - balanceText.getLayoutBounds().getWidth() / 2);
         balanceText.setY(y + NODE_RADIUS + 15);
 
@@ -198,13 +198,13 @@ public class TreeVisualizer extends Pane {
         circle.setOnMouseEntered(e -> {
             circle.setScaleX(1.1);
             circle.setScaleY(1.1);
-            circle.setFill(Color.web("#f9e2af"));
+            circle.setFill(Color.web("#c7cdd4")); // hover gris claro
         });
 
         circle.setOnMouseExited(e -> {
             circle.setScaleX(1.0);
             circle.setScaleY(1.0);
-            circle.setFill(isHighlighted ? Color.web("#f38ba8") : Color.web("#89b4fa"));
+            circle.setFill(isHighlighted ? Color.web("#9ca3af") : Color.web("#d1d5db"));
         });
 
         // Animación de entrada
@@ -241,9 +241,6 @@ public class TreeVisualizer extends Pane {
         return rightHeight - leftHeight;
     }
 
-    /**
-     * Anima la inserción de un nuevo nodo
-     */
     public void animateInsert(Integer key) {
         highlightedKey = key;
         drawTree(true);
@@ -256,9 +253,6 @@ public class TreeVisualizer extends Pane {
         pause.play();
     }
 
-    /**
-     * Anima la eliminación de un nodo
-     */
     public void animateDelete(Integer key) {
         highlightedKey = key;
         drawTree(true);
@@ -271,9 +265,6 @@ public class TreeVisualizer extends Pane {
         pause.play();
     }
 
-    /**
-     * Anima la búsqueda de un nodo
-     */
     public void animateSearch(Integer key) {
         highlightedKey = key;
         drawTree(false);
